@@ -1,20 +1,17 @@
 import streamlit as st
+import yfinance as yf
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="IDX Swing Engine AUTO", layout="centered")
+st.set_page_config(page_title="IDX Swing Engine Hybrid", layout="centered")
 
-st.title("📊 IDX Swing Decision Engine (Auto Mode)")
-
-st.markdown("Masukkan data teknikal sederhana (20 hari terakhir)")
+st.title("📊 IDX Swing Decision Engine (Hybrid Auto Mode)")
 
 # ================= INPUT =================
-stock = st.text_input("Saham", "SCNP")
+stock = st.text_input("Saham (contoh: BBCA.JK)", "BBCA.JK")
 avg_price = st.number_input("Average Price", value=220.0)
 current_price = st.number_input("Current Price", value=190.0)
-
-high_20 = st.number_input("High 20 Hari Terakhir", value=205.0)
-low_20 = st.number_input("Low 20 Hari Terakhir", value=175.0)
 
 timeframe = st.selectbox(
     "Timeframe",
@@ -25,12 +22,31 @@ st.divider()
 
 if st.button("Analyze Position"):
 
-    # ================= VOLATILITY AUTO =================
+    # ================= TRY AUTO HIGH-LOW =================
+    try:
+        data = yf.download(stock, period="1mo", interval="1d")
+        data.dropna(inplace=True)
+
+        if len(data) < 5:
+            raise Exception("Not enough data")
+
+        high_20 = data["High"].max()
+        low_20 = data["Low"].min()
+
+        auto_mode = True
+
+    except:
+        st.warning("Data Yahoo tidak tersedia. Masukkan High-Low manual.")
+        high_20 = st.number_input("High 20 Hari Terakhir", value=205.0)
+        low_20 = st.number_input("Low 20 Hari Terakhir", value=175.0)
+        auto_mode = False
+
+    # ================= VOLATILITY =================
     range_20 = high_20 - low_20
     volatility_pct = (range_20 / current_price) / 4 * 100
     atr = current_price * (volatility_pct / 100)
 
-    # ================= TREND AUTO =================
+    # ================= TREND DETECTION =================
     mid_range = (high_20 + low_20) / 2
 
     if current_price > mid_range and current_price > (low_20 + 0.6 * range_20):
@@ -83,16 +99,15 @@ if st.button("Analyze Position"):
         explanation = "Struktur lemah, tunggu rebound untuk keluar."
 
     # ================= OUTPUT =================
-    st.subheader("🔎 Auto Technical Analysis")
-
-    st.write(f"Trend Detected: {trend_bias}")
+    st.subheader("🔎 Data Range")
+    st.write(f"Mode: {'Auto Yahoo' if auto_mode else 'Manual'}")
+    st.write(f"High 20 Hari: {high_20:.2f}")
+    st.write(f"Low 20 Hari: {low_20:.2f}")
     st.write(f"Estimated Volatility: {volatility_pct:.2f}%")
-    st.write(f"ATR Estimasi: {atr:.2f}")
 
     st.divider()
 
     st.subheader("📊 Risk Model")
-
     st.write(f"Loss dari average: {loss_pct:.2f}%")
     st.write(f"Suggested Stop Loss: {stop_loss:.2f}")
     st.write(f"Projected Target: {target_price:.2f}")
@@ -103,22 +118,8 @@ if st.button("Analyze Position"):
     st.subheader("📌 Final Decision")
     st.success(decision)
     st.write(explanation)
+    st.write(f"Trend Detected: {trend_bias}")
     st.write(f"Score: {score}/6")
 
-    st.divider()
-
-    # ================= VISUAL SIMULATION =================
-    st.subheader("📈 Price Scenario Simulation")
-
-    simulated_prices = np.linspace(stop_loss, target_price, 50)
-    plt.figure()
-    plt.plot(simulated_prices)
-    plt.axhline(avg_price, linestyle='--')
-    plt.axhline(current_price, linestyle=':')
-    st.pyplot(plt)
-
-    st.markdown("""
-    ---
-    ⚠️ Sistem ini berbasis range & probabilitas, bukan prediksi pasti.
-    Gunakan sebagai decision support.
-    """)
+    st.markdown("---")
+    st.markdown("⚠️ Gunakan sebagai decision support, bukan sinyal absolut.")
