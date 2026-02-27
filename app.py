@@ -3,14 +3,19 @@ import yfinance as yf
 import numpy as np
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="IDX Swing Engine PRO", layout="centered")
+st.set_page_config(page_title="IDX Swing Engine PRO+", layout="centered")
 
-st.title("📊 IDX Swing Decision Engine (Hybrid Auto)")
+st.title("📊 IDX Swing Decision Engine PRO+")
 
 # ================= INPUT =================
 stock = st.text_input("Saham (contoh: BBCA.JK)", "SCNP.JK").upper()
+
 avg_price = float(st.number_input("Average Price", value=220.0))
 current_price = float(st.number_input("Current Price", value=190.0))
+lots = int(st.number_input("Jumlah Lot Saat Ini", value=4))
+
+capital = float(st.number_input("Total Modal Trading (Rp)", value=10000000.0))
+risk_tolerance = float(st.slider("Risk per Trade (%)", 1.0, 5.0, 2.0))
 
 timeframe = st.selectbox(
     "Timeframe",
@@ -23,8 +28,6 @@ if st.button("Analyze Position"):
 
     # ================= AUTO HIGH LOW =================
     auto_mode = False
-    high_20 = None
-    low_20 = None
 
     try:
         data = yf.download(
@@ -37,32 +40,28 @@ if st.button("Analyze Position"):
 
         if data is not None and not data.empty and len(data) >= 20:
             recent = data.tail(20)
-
             high_20 = float(recent["High"].max())
             low_20 = float(recent["Low"].min())
-
             auto_mode = True
         else:
             raise Exception("Not enough data")
 
-    except Exception:
+    except:
         st.warning("Yahoo data tidak tersedia. Masukkan High-Low manual.")
         high_20 = float(st.number_input("High 20 Hari Terakhir", value=205.0))
         low_20 = float(st.number_input("Low 20 Hari Terakhir", value=175.0))
         auto_mode = False
 
-    # ================= VALIDATION =================
     if high_20 <= low_20:
         st.error("High harus lebih besar dari Low.")
         st.stop()
 
-    # ================= VOLATILITY ESTIMATION =================
-    range_20 = float(high_20 - low_20)
-    volatility_pct = float((range_20 / current_price) / 4 * 100)
-    atr = float(current_price * (volatility_pct / 100))
+    # ================= VOLATILITY =================
+    range_20 = high_20 - low_20
+    volatility_pct = (range_20 / current_price) / 4 * 100
+    atr = current_price * (volatility_pct / 100)
 
     # ================= TREND DETECTION =================
-    mid_range = (high_20 + low_20) / 2
     upper_zone = low_20 + 0.6 * range_20
     lower_zone = low_20 + 0.4 * range_20
 
@@ -81,26 +80,20 @@ if st.button("Analyze Position"):
         stop_loss = current_price - (1.5 * atr)
         target_price = current_price + (2.5 * atr)
 
-    stop_loss = float(stop_loss)
-    target_price = float(target_price)
-
     risk = current_price - stop_loss
     reward = target_price - current_price
     rr_ratio = reward / risk if risk > 0 else 0
 
-    loss_pct = float((current_price - avg_price) / avg_price * 100)
+    loss_pct = (current_price - avg_price) / avg_price * 100
 
     # ================= SCORING =================
     score = 0
-
     if trend_bias == "Bullish":
         score += 3
     elif trend_bias == "Sideways":
         score += 1
-
     if rr_ratio >= 1.5:
         score += 2
-
     if loss_pct > -15:
         score += 1
 
@@ -118,11 +111,12 @@ if st.button("Analyze Position"):
         decision = "🚨 EXIT ON BOUNCE"
         explanation = "Struktur lemah, tunggu rebound untuk keluar."
 
-    # ================= OUTPUT =================
-    st.subheader("🔎 Data Range")
+    # ================= OUTPUT SECTION =================
+    st.subheader("🔎 Technical Range")
     st.write(f"Mode: {'Auto Yahoo (20D)' if auto_mode else 'Manual'}")
     st.write(f"High 20 Hari: {high_20:.2f}")
     st.write(f"Low 20 Hari: {low_20:.2f}")
+    st.write(f"Trend Detected: {trend_bias}")
     st.write(f"Estimated Volatility: {volatility_pct:.2f}%")
 
     st.divider()
@@ -138,22 +132,50 @@ if st.button("Analyze Position"):
     st.subheader("📌 Final Decision")
     st.success(decision)
     st.write(explanation)
-    st.write(f"Trend Detected: {trend_bias}")
     st.write(f"Score: {score}/6")
+
+    # ================= POSITION RISK ENGINE =================
+    position_value = current_price * lots * 100
+    floating_loss_value = (current_price - avg_price) * lots * 100
+
+    max_risk_allowed = capital * (risk_tolerance / 100)
+    risk_if_stop = (current_price - stop_loss) * lots * 100
+
+    st.divider()
+    st.subheader("💰 Position Risk Analysis")
+
+    st.write(f"Position Value: Rp {position_value:,.0f}")
+    st.write(f"Floating P/L: Rp {floating_loss_value:,.0f}")
+    st.write(f"Risk if Stop Hit: Rp {risk_if_stop:,.0f}")
+    st.write(f"Max Risk Allowed ({risk_tolerance}%): Rp {max_risk_allowed:,.0f}")
+
+    if risk_if_stop > max_risk_allowed:
+        st.error("⚠️ Posisi TERLALU BESAR untuk risk tolerance Anda.")
+    else:
+        st.success("✅ Ukuran posisi masih dalam batas aman.")
+
+    # ================= MAX ADDITIONAL LOT =================
+    risk_per_lot = (current_price - stop_loss) * 100
+
+    if risk_per_lot > 0:
+        additional_lots_allowed = int((max_risk_allowed - risk_if_stop) / risk_per_lot)
+        if additional_lots_allowed > 0:
+            st.write(f"Lot tambahan maksimal yang masih aman: {additional_lots_allowed}")
+        else:
+            st.write("Tidak disarankan menambah lot.")
 
     st.divider()
 
     # ================= VISUAL SIMULATION =================
-    st.subheader("📈 Price Scenario Simulation")
-
+    st.subheader("📈 Price Projection Simulation")
     simulated_prices = np.linspace(stop_loss, target_price, 50)
 
     plt.figure()
     plt.plot(simulated_prices)
     plt.axhline(avg_price, linestyle='--')
     plt.axhline(current_price, linestyle=':')
-    plt.title("Price Projection Range")
+    plt.title("Projected Price Range")
     st.pyplot(plt)
 
     st.markdown("---")
-    st.markdown("⚠️ Gunakan sebagai decision support, bukan sinyal absolut.")
+    st.markdown("⚠️ Gunakan sebagai decision support. Risk management tetap prioritas utama.")
